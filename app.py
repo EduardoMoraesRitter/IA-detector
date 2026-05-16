@@ -236,30 +236,69 @@ def humanizar_texto(texto, iteracao=0):
     return result
 
 
+# Palavras banidas no rewrite (AI dead giveaways)
+_BANNED_WORDS = [
+    "moreover", "furthermore", "additionally", "consequently", "nevertheless",
+    "comprehensive", "multifaceted", "paradigm", "leverage", "utilize",
+    "facilitate", "delve", "robust", "holistic", "landscape", "realm",
+    "encompass", "transformative", "paramount", "fundamental", "imperative",
+    "crucial", "vital", "pivotal", "significantly", "substantially",
+    "innovative", "groundbreaking", "pioneering", "noteworthy",
+    "underscores", "highlights", "revolutionize", "streamline",
+    "foster", "cultivate", "bolster", "harness", "spearhead",
+    "navigate", "embark", "endeavor", "commence",
+    "AI systems", "AI-powered", "machine learning algorithms",
+    "pedagogical", "methodologies", "proficiency",
+]
+_BANNED_WORDS_STR = ", ".join(_BANNED_WORDS)
+
+
 def gerar_reescrita_completa(texto, score):
     """Usa Gemini para gerar reescrita completa do texto, estilo QuillBot."""
     model = genai.GenerativeModel("gemini-2.0-flash")
-    prompt = f"""You are rewriting this AI-generated text to sound naturally human.
+    prompt = f"""You are a human ghostwriter. Your job is to rewrite this text so that NO AI detector can flag it.
 The current AI detection score is {score:.0f}%.
 
-RULES:
-- Rewrite the ENTIRE text below to sound like a real human wrote it casually
-- Change sentence structures, vary lengths, add contractions
-- Replace formal/AI words with everyday language
-- Add personal touches ("I think", "you know", "honestly")
-- Break predictable patterns — mix short and long sentences
-- Keep the same meaning and information
-- Do NOT add new facts or remove important points
-- Output ONLY the rewritten text, nothing else
+CRITICAL RULES — follow ALL of them:
 
-TEXT:
+1. SENTENCE RHYTHM: Mix aggressively. Some sentences must be 3-6 words. Others 25+. Never put two sentences of similar length next to each other.
+
+2. IMPERFECTIONS: Real humans are messy writers. Add:
+   - Self-corrections ("well, actually...", "or rather,")
+   - Parenthetical asides (like this one)
+   - Sentence fragments. Just like this.
+   - Start some sentences with "And", "But", "So", "Look,"
+
+3. STRONG PERSONAL VOICE: Do NOT be neutral. Take a side. Use:
+   - "I think", "I'd argue", "if you ask me", "from what I've seen"
+   - Rhetorical questions ("But does that actually work?")
+   - Opinions ("which is pretty wild when you think about it")
+
+4. BANNED WORDS — never use these: {_BANNED_WORDS_STR}
+
+5. CONTRACTIONS: Use them everywhere. "it is" → "it's", "do not" → "don't", "they are" → "they're". No exceptions.
+
+6. COLLOQUIAL LANGUAGE: Write like a blog post, not an essay.
+   - "a lot of" not "numerous"
+   - "pretty much" not "essentially"
+   - "messed up" not "problematic"
+   - "huge" not "significant"
+   - "stuff" or "things" not "elements" or "components"
+
+7. NO ESSAY STRUCTURE: No "firstly", no "in conclusion", no "it is important to note". Just talk.
+
+8. KEEP THE SAME MEANING: All core facts must stay. Only change HOW it reads.
+
+9. Output ONLY the rewritten text. No intro, no explanation.
+
+TEXT TO REWRITE:
 {texto}"""
 
     response = model.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
-            temperature=0.9,
-            max_output_tokens=len(texto.split()) * 4,
+            temperature=1.0,
+            max_output_tokens=len(texto.split()) * 5,
         ),
     )
     return response.text.strip()
