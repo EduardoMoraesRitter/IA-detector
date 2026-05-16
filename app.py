@@ -6,6 +6,7 @@ Streamlit app para gerar, detectar e humanizar texto IA.
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+import difflib
 import streamlit as st
 import os
 import google.generativeai as genai
@@ -267,7 +268,6 @@ TEXT:
 def _gerar_diff_html(original, reescrito):
     """Gera HTML do texto reescrito com palavras alteradas destacadas.
     Vermelho = palavras novas/alteradas no texto reescrito."""
-    import difflib
 
     orig_words = original.split()
     new_words = reescrito.split()

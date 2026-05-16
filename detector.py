@@ -1472,7 +1472,6 @@ def _revelar_chars_escondidos(texto):
     - Laranja: caracteres invisiveis desconhecidos (scanner generico)
     - Azul: tipograficos (aspas curvas, travessao, etc.)
     """
-    import unicodedata
     result = []
     for ch in texto:
         cp = ord(ch)
@@ -1567,7 +1566,6 @@ def gerar_texto_destacado_sentencas(texto, score, problemas):
     - score >= 45%: sentencas com problemas em amarelo claro
     - score < 45%: apenas trechos especificos
     """
-    import re
     sentencas = re.split(r'(?<=[.!?])\s+', texto.strip())
     if not sentencas:
         return _html_escape(texto).replace('\n', '<br>')

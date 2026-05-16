@@ -1,192 +1,253 @@
 # IA Detector
 
-Detector de texto e codigo gerado por IA usando analise estatistica pura — zero modelos de machine learning.
+AI-generated text and code detector using **pure statistical analysis** — zero ML models, zero API calls for detection. Runs entirely offline.
 
-Inspirado em: DetectGPT, GLTR, ZipPy (Thinkst), GPTZero, StyloAI, QuillBot AI Detector.
+Built with the same core principles behind GPTZero, Originality.ai, and academic tools like DetectGPT and GLTR, but fully transparent and open-source.
 
-## Como rodar
+## Features
+
+- **15-metric detection engine** for prose (entropy, compression, stylometry)
+- **Code detection mode** with comment analysis, pedagogical phrase detection, and structural metrics
+- **Unicode watermark scanner** — detects invisible characters inserted by ChatGPT/LLMs (NNBSP, ZWSP, ZWJ, etc.)
+- **QuillBot-style UI** — sentence-level highlighting, AI trigger breakdown, complete rewrite suggestions with word-level diff
+- **One-click rewrite** — Gemini-powered full text rewrite with "Try again / Cancel / Replace" flow
+- **Adversarial humanizer** — iterative rewrite loop using the detector itself as feedback
+- **CLI tools** — standalone generator, detector, and humanizer scripts
+
+## How Detection Works
+
+### The Problem
+
+AI-generated text has measurable statistical fingerprints. LLMs produce text that is more predictable, more uniform, and more formally structured than human writing. This detector exploits those differences using 15 independent metrics.
+
+### Core Techniques
+
+**1. Compression Analysis (ZipPy method)**
+
+AI text is more repetitive and predictable, which means it compresses better with algorithms like zlib. The ratio of compressed size to original size is a strong AI signal.
+
+```
+AI text:   compressed/original = 0.25-0.40 (highly compressible)
+Human text: compressed/original = 0.40-0.60+ (less compressible)
+```
+
+**2. Entropy Measurement**
+
+Shannon entropy of the word distribution measures vocabulary diversity. AI tends to reuse words in predictable patterns, resulting in lower entropy.
+
+```
+AI text:   ~6-8 bits (predictable vocabulary)
+Human text: ~8-10+ bits (diverse vocabulary)
+```
+
+**3. Sentence Rhythm Analysis (Burstiness)**
+
+Humans write with "bursts" — mixing very short sentences with long, rambling ones. AI produces suspiciously uniform sentence lengths.
+
+Three metrics capture this:
+- **Standard deviation** of sentence lengths (most discriminative single metric)
+- **Coefficient of variation** (burstiness)
+- **Adjacent sentence variation** — ratio between consecutive sentences
+
+**4. Stylometric Fingerprinting**
+
+AI has specific writing habits that are statistically detectable:
+
+| Signal | AI Pattern | Human Pattern |
+|--------|-----------|---------------|
+| Contractions | Avoids them (< 0.5/100 words) | Uses naturally (2-5+/100 words) |
+| Personal pronouns | Almost none (< 1.5%) | Frequent (3%+) |
+| Content/function word ratio | Heavy on content words (> 1.3) | Balanced (~1.0) |
+| Sentence openers | Repetitive starts | Varied starts |
+
+**5. AI Vocabulary Detection**
+
+LLMs overuse specific words and phrases that are statistical dead giveaways:
+
+- **Connectives**: "moreover", "furthermore", "additionally", "consequently"
+- **Formal verbs**: "utilize", "facilitate", "leverage", "encompass"
+- **Adjectives**: "comprehensive", "robust", "multifaceted", "transformative"
+- **Phrases**: "plays a crucial role", "it is important to note", "in today's world"
+- **Formulaic patterns**: "In today's..." openers, "In conclusion..." closers
+
+**6. Punctuation Entropy**
+
+AI punctuates at regular intervals. Humans are more erratic. Shannon entropy of the gaps between punctuation marks captures this.
+
+**7. Consensus Mechanism**
+
+When 4+ independent signals agree the text is AI-generated, the detector enforces minimum scores to prevent weak metrics from diluting strong signals:
+
+```
+4 strong signals → min 65%
+5 strong signals → min 75%
+6 strong signals → min 82%
+7+ strong signals → min 90%
+```
+
+### Code Detection
+
+When code is detected, the engine switches to specialized metrics:
+
+| Metric | What it detects | Why it matters |
+|--------|----------------|----------------|
+| Comment ratio | AI over-comments (ratio > 0.3) | Real students rarely write comments |
+| Pedagogical phrases | "I added...", "This function...", "Here we..." | AI explains its own work |
+| "I [verb]" comments | `# I added`, `# I used`, `# I created` | AI narrating its process |
+| Variable = input("variable") | `adjective = input("adjective:")` | AI names variables after prompts |
+| Sequential input() calls | 3+ consecutive `input()` lines | AI follows patterns literally |
+| Line length uniformity | Low CV of line lengths | AI writes uniform code |
+| Perfect indentation | All indents are multiples of 4 | AI formats perfectly |
+
+### Unicode Watermark Detection
+
+Some LLMs (notably ChatGPT o3/o4-mini) embed invisible Unicode characters in their output. The detector scans for:
+
+- **Known watermarks**: NNBSP (U+202F), ZWSP (U+200B), ZWNJ (U+200C), ZWJ (U+200D), SHY (U+00AD), WJ (U+2060), BOM (U+FEFF)
+- **Unknown invisibles**: Generic scanner catches ANY character in suspicious Unicode categories (Cf, Cc, Co, Cn, Zl, Zp)
+- **Typographic characters**: Em dash, curly quotes, ellipsis — common in AI output
+
+All hidden characters are displayed inline with colored badges (red = watermark, orange = unknown, blue = typographic).
+
+## Getting Started
 
 ```bash
+# Clone
+git clone https://github.com/YOUR_USERNAME/IA-detector.git
+cd IA-detector
+
+# Install
 pip install -r requirements.txt
+
+# Run the web app
 streamlit run app.py
 ```
 
-Acesse `http://localhost:8501`.
+Open `http://localhost:8501`.
 
-Para usar o Gerador e Humanizador, configure a API Key do Gemini:
-- No `.env`: `GEMINI_API_KEY=sua_chave_aqui`
-- Ou direto na sidebar do app
-- Pegue em: https://aistudio.google.com/apikey
+### Gemini API (optional)
 
-## Funcionalidades
+The **detector works entirely offline** — no API needed. The Generator, Humanizer, and Rewrite features require a Gemini API key:
 
-### 1. Detector (sem API, roda local)
+1. Get a free key at [Google AI Studio](https://aistudio.google.com/apikey)
+2. Create a `.env` file: `GEMINI_API_KEY=your_key_here`
+3. Or paste it in the sidebar
 
-Analisa texto ou codigo e retorna um score de 0-100% indicando probabilidade de ser gerado por IA.
+## Usage
 
-**Auto-detecta** se a entrada e texto ou codigo e aplica metricas diferentes para cada um.
+### Web Interface (Streamlit)
 
-**Interface estilo QuillBot:**
-- Texto com **highlights inline** (amarelo) nas frases detectadas como IA
-- **Score visual** com barra de progresso colorida
-- **Cards por problema** mostrando: trecho original, sugestao, e **previsao de % de melhoria**
-- **Metricas detalhadas** em painel colapsavel
-- Botao **"Aceitar"** por sugestao (aplica correcao individual)
-- Botao **"Aceitar Todas"** com previsao do score final (ex: "Aceitar Todas -> 59% (-19%)")
+Three tabs:
 
-### 2. Gerador (Gemini API)
+1. **Detector** — Paste text, get a 0-100% AI probability score with sentence-level highlighting, trigger breakdown, and one-click rewrite suggestions
+2. **Generator** — Generate AI text with Gemini (for testing the detector)
+3. **Humanizer** — Adversarial rewrite loop: Gemini rewrites the text, the detector evaluates it, repeat until the target score is reached
 
-Gera texto sobre qualquer tema usando Gemini 2.0 Flash. Controle de quantidade de palavras e temperature.
+### CLI
 
-### 3. Humanizador (Gemini API + Detector)
+```bash
+# Detect
+python detector.py -a my_essay.txt
 
-Loop adversarial: reescreve o texto com Gemini e usa o proprio detector como feedback. Suporta texto e codigo. Repete ate atingir o score alvo.
+# Generate AI text
+python gerador.py -t "impact of AI on education" -n 300
 
----
+# Humanize (adversarial loop)
+python humanizador.py -a ai_text.txt --iteracoes 5 --score-alvo 35
+```
 
-## Como o Detector funciona
+### Python API
 
-### Abordagem
+```python
+from detector import avaliar, rotulo_nivel, analisar_problemas, detectar_watermarks
 
-O detector usa **analise estatistica pura** — nenhum modelo de ML, nenhuma API. Isso e a mesma abordagem usada por ferramentas como GPTZero e Originality.ai:
+# Score a text (0-100, higher = more likely AI)
+score, metrics = avaliar(text)
+label = rotulo_nivel(score)  # "PROVAVEL IA", "INCONCLUSIVO", etc.
 
-- **Perplexidade / Entropia** — texto IA e mais previsivel
-- **Burstiness** — IA escreve frases de tamanho uniforme
-- **Estilometria** — IA evita contracoes, pronomes pessoais, e usa vocabulario formal
-- **Compressao (ZipPy)** — texto repetitivo comprime melhor com zlib
+# Get specific problems and suggestions
+problems = analisar_problemas(text)
+for p in problems:
+    print(f"{p['tipo']}: {p['trecho']} -> {p.get('sugestao')}")
 
-### Modo Texto — 15 metricas
+# Detect invisible Unicode watermarks
+wm = detectar_watermarks(text)
+if wm['tem_watermark']:
+    print(f"Found {wm['total_invisiveis']} invisible characters!")
+    print(wm['texto_limpo'])  # cleaned text
+```
 
-| # | Metrica | O que mede | IA tipica | Humano tipico | Peso |
-|---|---------|-----------|-----------|---------------|------|
-| 1 | **Entropia Shannon** | Diversidade da distribuicao de palavras | 6-8 bits | 8-10+ bits | 0.05 |
-| 2 | **Compressao (ZipPy)** | Taxa compressao zlib — texto previsivel comprime mais | 0.25-0.40 | 0.40-0.60+ | 0.06 |
-| 3 | **Burstiness** | CV do comprimento das frases | 0.1-0.3 | 0.5-1.0+ | 0.04 |
-| 4 | **SD compr. frases** | Desvio padrao absoluto do tamanho das frases | SD 2-5 | SD 6-12+ | 0.09 |
-| 5 | **Var. adjacentes** | CV das razoes entre frases consecutivas | CV < 0.3 | CV > 0.5 | 0.04 |
-| 6 | **TTR** | Type-Token Ratio (palavras unicas / total) | ~0.45 | ~0.55+ | 0.02 |
-| 7 | **Hapax Legomena** | Palavras que aparecem 1 vez / total | baixo | alto | 0.02 |
-| 8 | **Ratio conteudo/funcao** | Content words / function words | ~1.37 | ~0.98 | 0.12 |
-| 9 | **Contracoes** | Contracoes por 100 palavras (don't, I'm...) | < 0.5 | 2-5+ | 0.10 |
-| 10 | **Entropia pontuacao** | Shannon entropy dos intervalos de pontuacao | < 2.5 | > 3.0 | 0.04 |
-| 11 | **Conectivos IA** | Frequencia de "moreover", "furthermore", "leverage"... | > 0.5/frase | < 0.2/frase | 0.14 |
-| 12 | **Div. inicio frase** | Variedade das primeiras palavras | < 0.6 | > 0.8 | 0.03 |
-| 13 | **Pronomes pessoais** | % de pronomes 1a/2a pessoa | < 1.5% | > 3% | 0.08 |
-| 14 | **Frases tipicas IA** | Dead giveaways ("plays a crucial role", "delve into"...) | > 0.5/100p | ~0 | 0.12 |
-| 15 | **Padroes formulaicos** | Aberturas/fechamentos tipicos ("In today's...", "In conclusion...") | 0.5-1.0 | ~0 | 0.05 |
+## Metrics Reference
 
-**Mecanismo de consenso:** quando 5+ sinais fortes concordam, o score minimo e forcado (5 sinais = min 78%, 6+ = min 88%). Evita que metricas fracas diluam sinais claros.
+### Text Mode — 15 Metrics
 
-### Modo Codigo — metricas especificas
+| # | Metric | Measures | AI | Human | Weight |
+|---|--------|----------|-------|---------|--------|
+| 1 | Shannon Entropy | Word distribution diversity | 6-8 bits | 8-10+ bits | 0.06 |
+| 2 | Compression (ZipPy) | zlib compression ratio | 0.25-0.40 | 0.40-0.60+ | 0.06 |
+| 3 | Burstiness (CV) | Sentence length variation | 0.1-0.3 | 0.5-1.0+ | 0.06 |
+| 4 | Sentence SD | Absolute sentence length StdDev | SD 2-5 | SD 6-12+ | 0.10 |
+| 5 | Adjacent Variation | Ratio between consecutive sentences | CV < 0.3 | CV > 0.5 | 0.06 |
+| 6 | TTR | Type-Token Ratio (unique/total) | ~0.45 | ~0.55+ | 0.02 |
+| 7 | Hapax Legomena | Words used exactly once | low | high | 0.02 |
+| 8 | Content/Function Ratio | Content words / function words | ~1.37 | ~0.98 | 0.11 |
+| 9 | Contractions | Contractions per 100 words | < 0.5 | 2-5+ | 0.11 |
+| 10 | Punctuation Entropy | Shannon entropy of punctuation gaps | < 2.5 | > 3.0 | 0.04 |
+| 11 | AI Connectives | "moreover", "furthermore"... per sentence | > 0.5 | < 0.2 | 0.10 |
+| 12 | Sentence Opener Diversity | Unique first words / total sentences | < 0.6 | > 0.8 | 0.03 |
+| 13 | Personal Pronouns | 1st/2nd person percentage | < 1.5% | > 3% | 0.07 |
+| 14 | AI Phrases | Dead giveaway expressions per 100 words | > 0.5 | ~0 | 0.09 |
+| 15 | Formulaic Patterns | Opening/closing templates (0-1) | 0.5-1.0 | ~0 | 0.07 |
 
-Quando detecta codigo, o detector:
-1. **Extrai linguagem natural** (comentarios, strings, docstrings, print/input)
-2. **Analisa o NL extraido** com as 15 metricas de texto
-3. **Aplica metricas de codigo:**
+### Score Levels
 
-| Metrica | O que detecta | Peso |
-|---------|--------------|------|
-| **Comment ratio** | IA over-comments (ratio > 0.3) | ate 15 |
-| **Frases pedagogicas** | "I added...", "This function...", "Here we...", "the user...", "will prompt..." | ate 40 |
-| **Comentarios "I [verbo]"** | `# I added`, `# I made`, `# I used` — IA explicando seu trabalho | 2x por match |
-| **Input() sequenciais** | 3+ chamadas `input()` seguidas | 1-3 pontos |
-| **Var = input("var")** | `adjective = input("adjective: ")` — nome da variavel igual ao prompt | ate 15 |
-| **Comentarios de razao** | "to make...", "so that...", "in order to..." | 2x por match |
-| **Uniformidade linhas** | CV do comprimento das linhas (IA = uniforme) | ate 10 |
-| **Consistencia IDs** | CV do tamanho dos nomes de variaveis | ate 8 |
-| **Indentacao perfeita** | Toda indentacao multiplo de 4 | ate 5 |
-| **Regularidade blank lines** | Linhas em branco em intervalos regulares | ate 5 |
-| **Score NL** | Score do texto natural extraido | ate ~20 |
+| Score | Label | Meaning |
+|-------|-------|---------|
+| 85-100% | MUITO PROVAVEL IA | Very likely AI-generated |
+| 65-84% | PROVAVEL IA | Likely AI-generated |
+| 45-64% | INCONCLUSIVO | Inconclusive |
+| 25-44% | PROVAVEL HUMANO | Likely human-written |
+| 0-24% | MUITO PROVAVEL HUMANO | Very likely human-written |
 
-**Consenso codigo:** ph >= 8 = min 78%, ph >= 12 ou (ph >= 6 + vpm >= 3) = min 82%.
+## Tech Stack
 
-### Analise de Problemas e Sugestoes
+- **Detection Engine**: Pure Python (math, zlib, re, statistics, collections) — no ML
+- **Frontend**: Streamlit
+- **AI Features**: Google Gemini 2.0 Flash (generator, humanizer, rewrite)
+- **Unicode Analysis**: unicodedata standard library
 
-O detector identifica **trechos especificos** com cara de IA e sugere correcoes:
-
-| Tipo | Exemplo | Sugestao |
-|------|---------|----------|
-| **Conectivo IA** | "Moreover" | "Also" |
-| **Conectivo IA** | "Furthermore" | "And" |
-| **Conectivo IA** | "facilitate" | "help" |
-| **Conectivo IA** | "comprehensive" | "full" |
-| **Conectivo IA** | "paradigm" | "approach" |
-| **Conectivo IA** | "landscape" | "field" |
-| **Conectivo IA** | "It is important to note" | "Worth noting" |
-| **Sem contracoes** | "do not" -> "don't" | Auto-correcao |
-| **Frase IA** | "plays a crucial role" | "matters a lot" |
-| **Uniformidade** | Frases com tamanho parecido | "Varie o ritmo" |
-| **Sem pronomes** | Texto inteiro impessoal | "Adicione I think..., you can see..." |
-| **Abertura formulaica** | "In today's world..." | "Comece de forma direta" |
-
-Cada sugestao mostra **previsao de melhoria no score** quando aplicada.
-
-### Niveis de score
-
-| Score | Rotulo | Cor |
-|-------|--------|-----|
-| 85-100% | MUITO PROVAVEL IA | vermelho |
-| 65-84% | PROVAVEL IA | laranja |
-| 45-64% | INCONCLUSIVO | amarelo |
-| 25-44% | PROVAVEL HUMANO | verde |
-| 0-24% | MUITO PROVAVEL HUMANO | verde |
-
-## Stack
-
-- **Backend:** Python puro (math, zlib, re, statistics, collections)
-- **Frontend:** Streamlit
-- **API:** Google Gemini 2.0 Flash (gerador + humanizador)
-- **ML models:** nenhum — 100% estatistico
-
-## Estrutura
+## Project Structure
 
 ```
 IA-detector/
-├── app.py              # Interface Streamlit (3 tabs: Gerador, Detector, Humanizador)
-├── detector.py         # Motor de deteccao (15 metricas texto + codigo + sugestoes)
-├── gerador.py          # Modulo de geracao de texto (usado via app.py)
-├── humanizador.py      # Modulo de humanizacao adversarial
-├── test_detector.py    # Testes: AI prose vs human text
-├── test_code.py        # Testes: AI code vs human code
-├── test_sugestoes.py   # Testes: analise de problemas e sugestoes
-├── test_loop.py        # Testes: loop adversarial com Gemini
-├── test_user.py        # Teste diagnostico detalhado
+├── app.py              # Streamlit web interface
+├── detector.py         # Detection engine (15 metrics + watermarks + suggestions)
+├── gerador.py          # CLI text generator
+├── humanizador.py      # CLI adversarial humanizer
+├── test_detector.py    # Tests: AI vs human text
+├── test_code.py        # Tests: AI vs human code
+├── test_sugestoes.py   # Tests: problem analysis and suggestions
+├── test_loop.py        # Tests: adversarial loop with Gemini
 ├── requirements.txt    # streamlit, google-generativeai, python-dotenv
 ├── docs/
-│   └── PESQUISA_WATERMARKS.md  # Pesquisa sobre watermarks Unicode em LLMs
-└── .env                # GEMINI_API_KEY
+│   └── PESQUISA_WATERMARKS.md  # Research on Unicode watermarks in LLMs
+├── .env.example        # API key template
+└── .gitignore
 ```
 
-## API do Detector (detector.py)
+## Research References
 
-### Funcoes principais
+This project draws from academic research on AI text detection:
 
-```python
-from detector import avaliar, rotulo_nivel, analisar_problemas, aplicar_correcao
+- **DetectGPT** (Mitchell et al., 2023) — Perturbation-based detection using log probability
+- **GLTR** (Gehrmann et al., 2019) — Statistical analysis of token predictions
+- **ZipPy** (Thinkst) — Compression-based detection using zlib ratios
+- **GPTZero** — Perplexity and burstiness as core metrics
+- **StyloAI** — Stylometric fingerprinting for AI attribution
+- **Adversarial Paraphrasing** (NeurIPS 2025) — Using detectors as feedback for iterative rewriting
+- **SICO** (TMLR 2024) — Prompt optimization to evade detectors
+- **TempParaphraser** (EMNLP 2025) — Progressive rewriting with increasing aggressiveness
 
-# Avaliar texto
-score, metricas = avaliar(texto)       # score 0-100, dict de metricas
-label = rotulo_nivel(score)            # "PROVAVEL IA", "INCONCLUSIVO", etc.
+## License
 
-# Analisar problemas
-problemas = analisar_problemas(texto)  # lista de dicts com tipo, trecho, sugestao
-
-# Aplicar correcao
-novo_texto = aplicar_correcao(texto, problema)  # substitui trecho
-
-# Simular correcao (preview)
-novo_score, _ = simular_correcao(texto, problema)  # score apos 1 fix
-novo_score, _ = simular_todas(texto, problemas)    # score apos todos os fixes
-
-# HTML destacado
-html = gerar_texto_destacado(texto, problemas)     # texto com <span> amarelos
-
-# Detectar codigo
-is_code = detectar_codigo(texto)       # True se parece codigo
-```
-
-## Pesquisa: Watermarks Unicode em LLMs
-
-Ver documento completo em [`docs/PESQUISA_WATERMARKS.md`](docs/PESQUISA_WATERMARKS.md).
-
-**Resumo:** Modelos como GPT-o3/o4-mini inserem caracteres Unicode invisiveis (NNBSP U+202F) nos textos. A OpenAI diz que e um artefato de treinamento, nao watermark intencional. Google usa SynthID (watermark estatistico). A maioria dos detectores de IA (GPTZero, Originality.ai) usa analise estatistica como metodo principal — mesma abordagem do nosso detector.
+MIT
