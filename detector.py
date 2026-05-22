@@ -813,11 +813,17 @@ _PEDAGOGICAL_PHRASES = [
     "iterate", "iterates", "iterating",
     "loop through", "loops through",
     "extra words", "added extra", "also made",
+    # Label-style AI comments (AI labels its creative/bonus additions)
+    "creativity:", "creative:", "bonus:", "extra credit:", "extra:",
+    "added feature:", "feature:", "modification:", "enhancement:",
+    # "Added" without "I" — AI explaining what was added
+    "added a ", "added the ", "added an ", "added some",
+    "added error", "added color", "added more", "added input",
 ]
 
 
 _AI_COMMENT_RE = re.compile(
-    r'#\s*I\s+(?:added|also|made|used|created|implemented|defined|wrote|changed|'
+    r'#\s*(?:I\s+)?(?:added|also added|made|used|created|implemented|defined|wrote|changed|'
     r'modified|updated|converted|included|decided|chose|set|moved|put|renamed|'
     r'fixed|ensured|wanted|needed)',
     re.IGNORECASE,
@@ -897,6 +903,15 @@ def calcular_metricas_codigo(texto):
         texto, re.IGNORECASE
     ))
     pedagogical_hits += rationale_comments * 2
+
+    # 6b. Label-style comments: "# Label: explanation" — AI labels its sections
+    label_comments = len(re.findall(
+        r'#\s*(?:Creativity|Creative|Bonus|Extra|Feature|Modification|Enhancement|'
+        r'Added|Note|Purpose|Description|Explanation|Summary|Overview|'
+        r'Task|Assignment|Requirement|Challenge)\s*:',
+        texto, re.IGNORECASE
+    ))
+    pedagogical_hits += label_comments * 3
 
     # 7. Line length uniformity (CV)
     if len(linhas_nv) >= 3:
@@ -1001,9 +1016,9 @@ def score_codigo(code_metricas, nl_score):
     if cm['blank_regularity'] > 0.7: s += 5
     elif cm['blank_regularity'] > 0.4: s += 3
 
-    # NL text analysis (weight: up to ~20)
+    # NL text analysis (weight: up to ~25)
     if nl_score > 0:
-        s += nl_score * 0.20
+        s += nl_score * 0.25
 
     # Consensus boost: many pedagogical + clean structure = definitely AI
     if ph >= 3 and cm['consistent_indent'] and cm['comment_ratio'] > 0.02:
