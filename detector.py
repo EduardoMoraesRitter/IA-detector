@@ -493,6 +493,48 @@ _CLOSERS = [
     r"only time will tell",
 ]
 
+# ---------------------------------------------------------------------------
+# Sentence-level AI detection patterns
+# ---------------------------------------------------------------------------
+
+_SENTENCE_AI_PHRASES = [
+    "it is important to note", "it is worth mentioning", "it is worth noting",
+    "it should be noted", "plays a crucial role", "plays a vital role",
+    "plays a pivotal role", "in today's world", "in today's society",
+    "in the modern era", "in the digital age", "delve into", "embark on",
+    "a myriad of", "a plethora of", "has the potential to",
+    "first and foremost", "last but not least", "it is essential to",
+    "a holistic approach", "a comprehensive approach", "paving the way",
+    "at the forefront", "in conclusion", "has revolutionized",
+    "cannot be overstated", "in the realm of", "the landscape of",
+    "a wide range of", "a variety of", "in order to",
+    "navigating the complexities", "a nuanced understanding",
+    "serves as a reminder", "a testament to",
+]
+
+_COLLOQUIAL_RE = re.compile(
+    r'\b(?:like|you know|kinda|sorta|pretty much|a lot of|stuff|things|'
+    r'honestly|basically|literally|whatever|anyway|i mean|right\?|'
+    r'well,|so,|but hey|i guess|no way|oh well|come on|gonna|wanna|gotta)\b',
+    re.IGNORECASE,
+)
+
+_SELF_CORRECTION_RE = re.compile(
+    r'(?:well actually|or rather|I mean,|wait,|actually,|'
+    r'— |no,|hmm|ugh|oops)',
+    re.IGNORECASE,
+)
+
+_TRANSITION_STARTERS = re.compile(
+    r'^\s*(?:moreover|furthermore|additionally|consequently|nevertheless|'
+    r'subsequently|however|therefore|thus|hence|accordingly|'
+    r'in addition|as a result|for instance|for example|'
+    r'on the other hand|in contrast|similarly|likewise|'
+    r'in particular|notably|importantly|significantly)\b',
+    re.IGNORECASE,
+)
+
+
 def calcular_formulaicos(texto):
     """
     Score 0-1 para padroes formulaicos de abertura/fechamento.
@@ -1865,6 +1907,251 @@ def gerar_texto_watermark_destacado(texto):
             else:
                 result.append(_html_escape(ch))
     return ''.join(result)
+
+# ---------------------------------------------------------------------------
+# Analise por sentenca individual (estilo QuillBot/GPTZero)
+# ---------------------------------------------------------------------------
+
+def _score_sentenca(sentenca):
+    """Pontua uma sentenca individual para probabilidade de IA (0-100).
+
+    Usa sinais lexicais e estruturais que funcionam em sentenca isolada:
+    - Conectivos e frases tipicas de IA
+    - Contracoes (ausencia = IA)
+    - Pronomes pessoais (ausencia = IA)
+    - Ratio conteudo/funcao
+    - Padroes formulaicos
+    - Expressoes coloquiais (sinal humano)
+    """
+    sentenca_lower = sentenca.lower()
+    pals = _palavras(sentenca)
+    words = sentenca.split()
+    n_words = len(words)
+
+    if n_words < 3:
+        return {
+            'sentenca': sentenca,
+            'score': 25,
+            'classificacao': 'human',
+            'confianca': 'low',
+            'triggers': [],
+        }
+
+    score = 40
+    triggers = []
+
+    # === SINAIS DE IA (aumentam score) ===
+
+    # 1. Conectivos IA (sinal forte)
+    for conn in AI_CONNECTORS:
+        if conn in sentenca_lower:
+            bonus = 15 if len(conn.split()) > 1 else 10
+            score += bonus
+            triggers.append(('ai', conn))
+            break
+
+    # 2. Frases dead giveaway de IA
+    for phrase in _SENTENCE_AI_PHRASES:
+        if phrase in sentenca_lower:
+            score += 25
+            triggers.append(('ai', phrase))
+            break
+
+    # 3. Sem contracoes em frase longa
+    contractions = _CONTRACTION_RE.findall(sentenca)
+    if not contractions and n_words >= 8:
+        for expanded, contracted in _EXPANDABLE_FORMS:
+            if expanded.lower() in sentenca_lower:
+                score += 8
+                triggers.append(('ai', f"No contraction: {expanded}"))
+                break
+        else:
+            score += 3
+
+    # 4. Sem pronomes pessoais
+    personal = sum(1 for p in pals if p in FIRST_PERSON or p in SECOND_PERSON)
+    if personal == 0 and n_words >= 8:
+        score += 5
+
+    # 5. Ratio conteudo/funcao alto (formal demais)
+    if len(pals) >= 5:
+        funcao = sum(1 for p in pals if p in FUNCTION_WORDS)
+        conteudo = len(pals) - funcao
+        if funcao > 0:
+            ratio = conteudo / funcao
+            if ratio > 1.6:
+                score += 8
+                triggers.append(('ai', 'High formality'))
+
+    # 6. Abertura formulaica
+    for pat in _OPENERS:
+        if re.search(pat, sentenca_lower.strip()):
+            score += 18
+            triggers.append(('ai', 'Formulaic opener'))
+            break
+
+    # 7. Fechamento formulaico
+    for pat in _CLOSERS:
+        if re.search(pat, sentenca_lower.strip()):
+            score += 18
+            triggers.append(('ai', 'Formulaic closer'))
+            break
+
+    # 8. Comeca com transicao formal
+    if _TRANSITION_STARTERS.match(sentenca.strip()):
+        score += 8
+        triggers.append(('ai', 'Formal transition'))
+
+    # 9. Palavras longas em media
+    if pals:
+        avg_wlen = sum(len(p) for p in pals) / len(pals)
+        if avg_wlen >= 6.5:
+            score += 5
+
+    # === SINAIS HUMANOS (diminuem score) ===
+
+    # 10. Contracoes presentes
+    if contractions:
+        score -= 12
+        triggers.append(('human', 'Uses contractions'))
+
+    # 11. Pronomes pessoais
+    if personal > 0:
+        score -= 8
+        triggers.append(('human', 'Personal pronouns'))
+
+    # 12. Frase curta e direta
+    if n_words <= 5:
+        score -= 5
+
+    # 13. Linguagem coloquial
+    if _COLLOQUIAL_RE.search(sentenca):
+        score -= 12
+        triggers.append(('human', 'Colloquial language'))
+
+    # 14. Auto-correcao
+    if _SELF_CORRECTION_RE.search(sentenca):
+        score -= 10
+        triggers.append(('human', 'Self-correction'))
+
+    # 15. Comeca com "And", "But", "So" (informal)
+    first_word = words[0].lower().rstrip(',')
+    if first_word in ('and', 'but', 'so', 'look', 'yeah', 'nah', 'ok', 'okay'):
+        score -= 5
+        triggers.append(('human', f'Informal start: "{first_word}"'))
+
+    # Clamp 0-100
+    score = max(0, min(100, score))
+
+    # Classificacao
+    if score >= 65:
+        classificacao = 'ai'
+        confianca = 'high' if score >= 80 else 'medium'
+    elif score >= 45:
+        classificacao = 'mixed'
+        confianca = 'medium' if score >= 55 else 'low'
+    else:
+        classificacao = 'human'
+        confianca = 'high' if score <= 20 else ('medium' if score <= 35 else 'low')
+
+    return {
+        'sentenca': sentenca,
+        'score': score,
+        'classificacao': classificacao,
+        'confianca': confianca,
+        'triggers': triggers,
+    }
+
+
+def avaliar_por_sentenca(texto):
+    """Analisa texto sentenca por sentenca. Retorna lista de resultados.
+
+    Cada resultado contem:
+    - sentenca: str
+    - score: int (0-100)
+    - classificacao: 'ai' | 'mixed' | 'human'
+    - confianca: 'high' | 'medium' | 'low'
+    - triggers: list of (tipo, descricao) tuples
+    """
+    is_code = detectar_codigo(texto)
+    if is_code:
+        return []
+
+    sentencas = _frases(texto)
+    if not sentencas:
+        return []
+
+    resultados = []
+    for sent in sentencas:
+        resultado = _score_sentenca(sent)
+        resultados.append(resultado)
+
+    return resultados
+
+
+def gerar_html_sentencas_individual(texto, resultados_sentenca):
+    """Gera HTML com cores por sentenca baseado na analise individual.
+
+    Cores:
+    - Dourado: AI-generated (score >= 65)
+    - Azul claro: AI-refined/mixed (score 45-65)
+    - Sem cor: Human (score < 45)
+    """
+    if not resultados_sentenca:
+        return _html_escape(texto).replace('\n', '<br>')
+
+    result = []
+    offset = 0
+
+    for res in resultados_sentenca:
+        sent = res['sentenca']
+        score = res['score']
+        classificacao = res['classificacao']
+
+        idx = texto.find(sent, offset)
+        if idx < 0:
+            idx = offset
+
+        if idx > offset:
+            between = texto[offset:idx]
+            result.append(_html_escape(between).replace('\n', '<br>'))
+
+        sent_html = _revelar_chars_escondidos(sent)
+
+        if classificacao == 'ai':
+            bg = '#F5DEB3'
+            border_color = '#D4A843'
+        elif classificacao == 'mixed':
+            bg = '#E8F0FE'
+            border_color = '#93C5FD'
+        else:
+            bg = 'transparent'
+            border_color = 'transparent'
+
+        if classificacao != 'human':
+            trigger_text = '; '.join(t[1] for t in res['triggers'][:3])
+            title = f"Score: {score}% — {classificacao.upper()}"
+            if trigger_text:
+                title += f" | {trigger_text}"
+            result.append(
+                f'<span style="background:{bg};padding:2px 4px;'
+                f'border-bottom:2px solid {border_color};color:#1a1a1a;'
+                f'cursor:help;" title="{_html_escape(title)}">'
+                f'{sent_html}</span> '
+            )
+        else:
+            result.append(f'{sent_html} ')
+
+        offset = idx + len(sent)
+
+    if offset < len(texto):
+        result.append(_html_escape(texto[offset:]).replace('\n', '<br>'))
+
+    html = ''.join(result)
+    html = html.replace('\n\n', '</p><p style="margin-top:12px;">')
+    html = html.replace('\n', '<br>')
+    return f'<p>{html}</p>'
+
 
 # ---------------------------------------------------------------------------
 # Exibicao

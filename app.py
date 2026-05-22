@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 from detector import (avaliar, rotulo_nivel, detectar_codigo, analisar_problemas,
                       aplicar_correcao, simular_correcao, simular_todas, gerar_texto_destacado,
                       gerar_texto_destacado_sentencas,
-                      detectar_watermarks, gerar_texto_watermark_destacado)
+                      detectar_watermarks, gerar_texto_watermark_destacado,
+                      avaliar_por_sentenca, gerar_html_sentencas_individual)
 
 load_dotenv()
 
@@ -40,6 +41,11 @@ def configurar_gemini(api_key=None):
 # ---------------------------------------------------------------------------
 # Funcoes
 # ---------------------------------------------------------------------------
+
+def _html_escape_app(s):
+    """HTML escape helper for app.py templates."""
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
 
 def gerar_texto(tema, palavras=250, temperature=0.7):
     model = genai.GenerativeModel("gemini-2.0-flash")
@@ -495,6 +501,7 @@ def _aplicar_fix(prob_index):
     st.session_state.det_score = score
     st.session_state.det_metricas = metricas
     st.session_state.det_problemas = analisar_problemas(texto)
+    st.session_state.det_sentencas = avaliar_por_sentenca(texto)
     st.session_state.det_previews = {}
     st.session_state["ultimo_score"] = score
     st.session_state["ultimas_metricas"] = metricas
@@ -511,6 +518,7 @@ def _aplicar_todas():
     st.session_state.det_score = score
     st.session_state.det_metricas = metricas
     st.session_state.det_problemas = analisar_problemas(texto)
+    st.session_state.det_sentencas = avaliar_por_sentenca(texto)
     st.session_state.det_previews = {}
     st.session_state["ultimo_score"] = score
     st.session_state["ultimas_metricas"] = metricas
@@ -526,6 +534,7 @@ def _aplicar_reescrita():
         st.session_state.det_metricas = metricas
         problemas = analisar_problemas(reescrita)
         st.session_state.det_problemas = problemas
+        st.session_state.det_sentencas = avaliar_por_sentenca(reescrita)
         st.session_state.det_previews = {}
         st.session_state["ultimo_score"] = score
         st.session_state["ultimas_metricas"] = metricas
@@ -581,10 +590,12 @@ with tab2:
             score, metricas = avaliar(texto_detector)
             problemas = analisar_problemas(texto_detector)
             watermarks = detectar_watermarks(texto_detector)
+            sentencas = avaliar_por_sentenca(texto_detector)
             st.session_state.det_score = score
             st.session_state.det_metricas = metricas
             st.session_state.det_problemas = problemas
             st.session_state.det_watermarks = watermarks
+            st.session_state.det_sentencas = sentencas
             st.session_state["ultimo_score"] = score
             st.session_state["ultimas_metricas"] = metricas
 
@@ -635,21 +646,45 @@ with tab2:
         col_left, col_right = st.columns([5, 3], gap="large")
 
         with col_left:
-            # --- Texto com highlights por sentenca ---
+            # --- Texto com highlights por sentenca individual ---
             if texto_detector:
-                html_texto = gerar_texto_destacado_sentencas(
-                    texto_detector, score_atual, problemas
-                )
+                sentencas_res = st.session_state.get('det_sentencas', [])
+                if sentencas_res:
+                    html_texto = gerar_html_sentencas_individual(
+                        texto_detector, sentencas_res
+                    )
+                else:
+                    html_texto = gerar_texto_destacado_sentencas(
+                        texto_detector, score_atual, problemas
+                    )
                 n_words = len(texto_detector.split())
+                n_sents = len(sentencas_res) if sentencas_res else 0
+
+                # Legend
+                legend = (
+                    '<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">'
+                    '<span style="font-size:12px;color:#666;">'
+                    '<span style="background:#F5DEB3;padding:2px 8px;border-radius:3px;'
+                    'border-bottom:2px solid #D4A843;">AI-generated</span></span>'
+                    '<span style="font-size:12px;color:#666;">'
+                    '<span style="background:#E8F0FE;padding:2px 8px;border-radius:3px;'
+                    'border-bottom:2px solid #93C5FD;">AI-refined</span></span>'
+                    '<span style="font-size:12px;color:#666;">'
+                    '<span style="padding:2px 8px;">Human</span></span>'
+                    '</div>'
+                ) if sentencas_res else ''
+
+                sent_info = f' | {n_sents} Sentences analyzed' if n_sents else ''
                 st.markdown(
                     f'<div style="background:#FFFFFF;padding:24px;border-radius:10px;'
                     f'font-size:15px;line-height:2.0;color:#1a1a1a;border:1px solid #E5E7EB;'
                     f'min-height:120px;">'
+                    f'{legend}'
                     f'{html_texto}'
                     f'<div style="border-top:1px solid #E5E7EB;margin-top:16px;padding-top:8px;'
                     f'display:flex;align-items:center;gap:16px;">'
-                    f'<span style="color:#666;font-size:13px;">{n_words} Words</span>'
-                    f'<span style="color:#22C55E;font-size:13px;">✅ Analysis complete</span>'
+                    f'<span style="color:#666;font-size:13px;">{n_words} Words{sent_info}</span>'
+                    f'<span style="color:#22C55E;font-size:13px;">Analysis complete</span>'
                     f'</div></div>',
                     unsafe_allow_html=True,
                 )
@@ -788,11 +823,21 @@ with tab2:
             '''
             st.markdown(bar_html, unsafe_allow_html=True)
 
-            # --- Breakdown (estilo QuillBot — dot no final) ---
-            ai_pct = max(0, score_atual - 20) if score_atual >= 65 else 0
-            mixed_pct = min(score_atual, 100) if 25 <= score_atual < 65 else (
-                20 if score_atual >= 65 else 0)
-            human_pct = 100 - ai_pct - mixed_pct
+            # --- Breakdown (baseado em analise por sentenca) ---
+            sentencas_res = st.session_state.get('det_sentencas', [])
+            if sentencas_res:
+                n_ai = sum(1 for s in sentencas_res if s['classificacao'] == 'ai')
+                n_mixed = sum(1 for s in sentencas_res if s['classificacao'] == 'mixed')
+                n_human = sum(1 for s in sentencas_res if s['classificacao'] == 'human')
+                total_s = len(sentencas_res)
+                ai_pct = round(n_ai / total_s * 100) if total_s else 0
+                mixed_pct = round(n_mixed / total_s * 100) if total_s else 0
+                human_pct = 100 - ai_pct - mixed_pct
+            else:
+                ai_pct = max(0, score_atual - 20) if score_atual >= 65 else 0
+                mixed_pct = min(score_atual, 100) if 25 <= score_atual < 65 else (
+                    20 if score_atual >= 65 else 0)
+                human_pct = 100 - ai_pct - mixed_pct
 
             breakdown_html = f'''
             <div style="margin:10px 0 16px 0;">
@@ -881,6 +926,58 @@ with tab2:
                     "Hard to detect / no clear markers</p>",
                     unsafe_allow_html=True,
                 )
+
+            # --- Per-sentence breakdown (estilo QuillBot) ---
+            sentencas_res = st.session_state.get('det_sentencas', [])
+            if sentencas_res:
+                st.markdown("---")
+                st.markdown("**Sentence Analysis**")
+                st.caption(f"{len(sentencas_res)} sentences analyzed individually")
+
+                for idx_s, s_res in enumerate(sentencas_res):
+                    s_score = s_res['score']
+                    s_class = s_res['classificacao']
+                    s_conf = s_res['confianca']
+                    s_text = s_res['sentenca']
+                    s_triggers = s_res['triggers']
+
+                    # Color and label based on classification
+                    if s_class == 'ai':
+                        s_color = '#D4A843'
+                        s_label = 'AI'
+                        s_border = '#D4A843'
+                    elif s_class == 'mixed':
+                        s_color = '#60A5FA'
+                        s_label = 'Mixed'
+                        s_border = '#93C5FD'
+                    else:
+                        s_color = '#22C55E'
+                        s_label = 'Human'
+                        s_border = '#22C55E'
+
+                    # Truncate long sentences
+                    preview = s_text[:70] + ('...' if len(s_text) > 70 else '')
+
+                    # Trigger tooltips
+                    trigger_parts = [t[1] for t in s_triggers[:2]]
+                    trigger_tip = ' | '.join(trigger_parts) if trigger_parts else ''
+
+                    st.markdown(
+                        f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                        f'margin:4px 0;padding:8px 10px;'
+                        f'border-left:3px solid {s_border};'
+                        f'background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;'
+                        f'cursor:help;" title="{_html_escape_app(trigger_tip)}">'
+                        f'<span style="font-size:12px;color:{s_color};font-weight:700;'
+                        f'min-width:32px;">{s_score}%</span>'
+                        f'<span style="font-size:12px;color:#999;flex:1;'
+                        f'line-height:1.4;">{_html_escape_app(preview)}</span>'
+                        f'<span style="background:{s_color};color:white;'
+                        f'padding:1px 8px;border-radius:10px;font-size:10px;'
+                        f'font-weight:600;white-space:nowrap;">{s_label}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
         # --- Metricas colapsaveis (full width) ---
         with st.expander("Metricas detalhadas"):
