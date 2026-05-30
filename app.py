@@ -310,6 +310,32 @@ TEXT TO REWRITE:
     return response.text.strip()
 
 
+def gerar_reescrita_sentenca(sentenca, score):
+    """Reescreve uma unica sentenca via Gemini para soar mais humana."""
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    prompt = f"""Rewrite ONLY this single sentence to sound naturally human-written.
+Current AI detection score: {score}%.
+
+Rules:
+- Use contractions (don't, it's, can't, they're)
+- Use casual, conversational tone
+- Add a personal touch if it fits
+- Keep the EXACT same meaning
+- NEVER use: moreover, furthermore, additionally, consequently, nevertheless, comprehensive, crucial, facilitate, leverage, utilize, delve, robust, holistic, landscape, paradigm
+- Output ONLY the rewritten sentence. No quotes. No explanation.
+
+Original: {sentenca}"""
+
+    response = model.generate_content(
+        prompt,
+        generation_config=genai.GenerationConfig(
+            temperature=1.0,
+            max_output_tokens=200,
+        ),
+    )
+    return response.text.strip().strip('"').strip("'")
+
+
 def _gerar_diff_html(original, reescrito):
     """Gera HTML do texto reescrito com palavras alteradas destacadas.
     Vermelho = palavras novas/alteradas no texto reescrito."""
@@ -565,6 +591,59 @@ def _cancelar_reescrita():
     st.session_state.det_reescrita = None
 
 
+def _reescrever_sentenca(idx):
+    """Callback: gera reescrita de uma sentenca individual via Gemini."""
+    sentencas = st.session_state.get('det_sentencas', [])
+    if idx >= len(sentencas):
+        return
+    s = sentencas[idx]
+    try:
+        reescrita = gerar_reescrita_sentenca(s['sentenca'], s['score'])
+        if 'det_sent_rewrites' not in st.session_state:
+            st.session_state.det_sent_rewrites = {}
+        st.session_state.det_sent_rewrites[idx] = reescrita
+    except Exception:
+        pass
+
+
+def _replace_sentenca(idx):
+    """Callback: aplica reescrita de uma sentenca ao texto."""
+    rewrites = st.session_state.get('det_sent_rewrites', {})
+    if idx not in rewrites:
+        return
+    sentencas = st.session_state.get('det_sentencas', [])
+    if idx >= len(sentencas):
+        return
+
+    original = sentencas[idx]['sentenca']
+    reescrita = rewrites[idx]
+    texto = st.session_state.ta_detector
+    texto = texto.replace(original, reescrita, 1)
+
+    st.session_state.ta_detector = texto
+    score, metricas = avaliar(texto)
+    st.session_state.det_score = score
+    st.session_state.det_metricas = metricas
+    st.session_state.det_problemas = analisar_problemas(texto)
+    st.session_state.det_sentencas = avaliar_por_sentenca(texto)
+    st.session_state.det_sent_rewrites = {}
+    st.session_state.det_previews = {}
+    st.session_state["ultimo_score"] = score
+    st.session_state["ultimas_metricas"] = metricas
+
+
+def _try_again_sentenca(idx):
+    """Callback: regenera reescrita de uma sentenca."""
+    _reescrever_sentenca(idx)
+
+
+def _cancel_sentenca(idx):
+    """Callback: cancela reescrita de uma sentenca."""
+    rewrites = st.session_state.get('det_sent_rewrites', {})
+    if idx in rewrites:
+        del rewrites[idx]
+
+
 with tab2:
     st.caption("15 metricas: entropia, compressao, estilometria — sem modelos pesados")
 
@@ -596,6 +675,7 @@ with tab2:
             st.session_state.det_problemas = problemas
             st.session_state.det_watermarks = watermarks
             st.session_state.det_sentencas = sentencas
+            st.session_state.det_sent_rewrites = {}
             st.session_state["ultimo_score"] = score
             st.session_state["ultimas_metricas"] = metricas
 
@@ -934,6 +1014,8 @@ with tab2:
                 st.markdown("**Sentence Analysis**")
                 st.caption(f"{len(sentencas_res)} sentences analyzed individually")
 
+                rewrites = st.session_state.get('det_sent_rewrites', {})
+
                 for idx_s, s_res in enumerate(sentencas_res):
                     s_score = s_res['score']
                     s_class = s_res['classificacao']
@@ -941,43 +1023,103 @@ with tab2:
                     s_text = s_res['sentenca']
                     s_triggers = s_res['triggers']
 
-                    # Color and label based on classification
                     if s_class == 'ai':
                         s_color = '#D4A843'
-                        s_label = 'AI'
+                        s_label = 'AI-generated'
+                        s_badge = 'AI'
                         s_border = '#D4A843'
+                        conf_label = 'High Probability' if s_conf == 'high' else 'Moderate'
+                        conf_color = '#D4A843'
                     elif s_class == 'mixed':
                         s_color = '#60A5FA'
-                        s_label = 'Mixed'
+                        s_label = 'AI-refined'
+                        s_badge = 'Mixed'
                         s_border = '#93C5FD'
+                        conf_label = 'Moderate'
+                        conf_color = '#60A5FA'
                     else:
                         s_color = '#22C55E'
-                        s_label = 'Human'
+                        s_label = 'Human-written'
+                        s_badge = 'Human'
                         s_border = '#22C55E'
+                        conf_label = ''
+                        conf_color = '#22C55E'
 
-                    # Truncate long sentences
-                    preview = s_text[:70] + ('...' if len(s_text) > 70 else '')
+                    preview = s_text[:60] + ('...' if len(s_text) > 60 else '')
 
-                    # Trigger tooltips
-                    trigger_parts = [t[1] for t in s_triggers[:2]]
-                    trigger_tip = ' | '.join(trigger_parts) if trigger_parts else ''
-
+                    # Header: score + preview + badge
                     st.markdown(
                         f'<div style="display:flex;align-items:flex-start;gap:8px;'
-                        f'margin:4px 0;padding:8px 10px;'
+                        f'margin:6px 0 0 0;padding:8px 10px;'
                         f'border-left:3px solid {s_border};'
-                        f'background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;'
-                        f'cursor:help;" title="{_html_escape_app(trigger_tip)}">'
+                        f'background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;">'
                         f'<span style="font-size:12px;color:{s_color};font-weight:700;'
                         f'min-width:32px;">{s_score}%</span>'
                         f'<span style="font-size:12px;color:#999;flex:1;'
                         f'line-height:1.4;">{_html_escape_app(preview)}</span>'
                         f'<span style="background:{s_color};color:white;'
                         f'padding:1px 8px;border-radius:10px;font-size:10px;'
-                        f'font-weight:600;white-space:nowrap;">{s_label}</span>'
+                        f'font-weight:600;white-space:nowrap;">{s_badge}</span>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+
+                    # Details for AI/mixed sentences
+                    if s_class in ('ai', 'mixed'):
+                        # Confidence + trigger tags
+                        trigger_tags = ''.join(
+                            f'<span style="background:#2A2A3E;border:1px solid #444;'
+                            f'color:#CCC;padding:2px 6px;border-radius:10px;'
+                            f'font-size:10px;">{_html_escape_app(t[1][:25])}</span>'
+                            for t in s_triggers[:3]
+                        )
+                        st.markdown(
+                            f'<div style="margin:2px 0 4px 42px;display:flex;'
+                            f'flex-wrap:wrap;gap:4px;align-items:center;">'
+                            f'<span style="color:{conf_color};font-size:11px;'
+                            f'font-weight:600;">{conf_label}</span>'
+                            f'{trigger_tags}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                        # Rewrite section
+                        if idx_s in rewrites:
+                            rw_text = rewrites[idx_s]
+                            st.markdown(
+                                f'<div style="margin:4px 0 4px 12px;padding:8px 10px;'
+                                f'background:#2A2A1E;border:1px solid {s_border};'
+                                f'border-radius:6px;">'
+                                f'<span style="color:#999;font-size:11px;">'
+                                f'Rewritten text:</span><br>'
+                                f'<span style="color:#E0E0E0;font-size:12px;'
+                                f'line-height:1.5;">'
+                                f'{_html_escape_app(rw_text)}</span></div>',
+                                unsafe_allow_html=True,
+                            )
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.button("🔄 Try", key=f"retry_s_{idx_s}",
+                                          on_click=_try_again_sentenca,
+                                          args=(idx_s,),
+                                          use_container_width=True)
+                            with c2:
+                                st.button("✕ Cancel", key=f"cancel_s_{idx_s}",
+                                          on_click=_cancel_sentenca,
+                                          args=(idx_s,),
+                                          use_container_width=True)
+                            with c3:
+                                st.button("✓ Replace", key=f"replace_s_{idx_s}",
+                                          type="primary",
+                                          on_click=_replace_sentenca,
+                                          args=(idx_s,),
+                                          use_container_width=True)
+                        elif GEMINI_CONFIGURADO:
+                            st.button(
+                                f"✏️ Rewrite", key=f"rewrite_s_{idx_s}",
+                                on_click=_reescrever_sentenca,
+                                args=(idx_s,),
+                                use_container_width=True,
+                            )
 
         # --- Metricas colapsaveis (full width) ---
         with st.expander("Metricas detalhadas"):
