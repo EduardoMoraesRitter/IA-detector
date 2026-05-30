@@ -17,6 +17,13 @@ from detector import (avaliar, rotulo_nivel, detectar_codigo, analisar_problemas
                       detectar_watermarks, gerar_texto_watermark_destacado,
                       avaliar_por_sentenca, gerar_html_sentencas_individual)
 
+# DeBERTa ML detector (optional — requires torch)
+try:
+    from deberta_detector import is_available as deberta_available, detectar_completo as deberta_detectar
+    DEBERTA_DISPONIVEL = deberta_available()
+except ImportError:
+    DEBERTA_DISPONIVEL = False
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -676,6 +683,7 @@ with tab2:
             st.session_state.det_watermarks = watermarks
             st.session_state.det_sentencas = sentencas
             st.session_state.det_sent_rewrites = {}
+            st.session_state.det_deberta = None
             st.session_state["ultimo_score"] = score
             st.session_state["ultimas_metricas"] = metricas
 
@@ -1154,6 +1162,83 @@ with tab2:
         # --- Metricas colapsaveis (full width) ---
         with st.expander("Metricas detalhadas"):
             mostrar_metricas(score_atual, st.session_state.det_metricas)
+
+        # --- DeBERTa ML Analysis (optional) ---
+        if DEBERTA_DISPONIVEL:
+            with st.expander("🧠 DeBERTa ML Analysis (Deep Learning)", expanded=False):
+                deberta_result = st.session_state.get("det_deberta")
+                if deberta_result is None and texto_detector:
+                    if st.button("Run DeBERTa Analysis", type="primary",
+                                 use_container_width=True,
+                                 help="Uses DeBERTa-v3 neural network for deep AI detection. "
+                                      "First run downloads ~400MB model."):
+                        with st.spinner("Loading DeBERTa model..."):
+                            try:
+                                deberta_result = deberta_detectar(texto_detector)
+                                st.session_state.det_deberta = deberta_result
+                            except Exception as e:
+                                st.error(f"DeBERTa error: {e}")
+
+                if deberta_result:
+                    db_overall = deberta_result['overall']
+                    db_stats = deberta_result['stats']
+
+                    # Score comparison: Statistical vs DeBERTa
+                    col_stat, col_ml = st.columns(2)
+
+                    with col_stat:
+                        st.markdown(
+                            f'<div style="text-align:center;padding:12px;'
+                            f'background:#1A1A2E;border-radius:8px;border:1px solid #333;">'
+                            f'<p style="color:#999;font-size:12px;margin:0;">Statistical Analysis</p>'
+                            f'<span style="font-size:36px;font-weight:700;color:#4A90C4;">'
+                            f'{score_atual:.0f}%</span>'
+                            f'<p style="color:#999;font-size:11px;margin:4px 0 0 0;">'
+                            f'18 metrics</p></div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_ml:
+                        db_color = '#EF4444' if db_overall['score_pct'] >= 70 else (
+                            '#EAB308' if db_overall['score_pct'] >= 40 else '#22C55E')
+                        st.markdown(
+                            f'<div style="text-align:center;padding:12px;'
+                            f'background:#1A1A2E;border-radius:8px;border:1px solid #333;">'
+                            f'<p style="color:#999;font-size:12px;margin:0;">DeBERTa v3 (ML)</p>'
+                            f'<span style="font-size:36px;font-weight:700;color:{db_color};">'
+                            f'{db_overall["score_pct"]:.0f}%</span>'
+                            f'<p style="color:#999;font-size:11px;margin:4px 0 0 0;">'
+                            f'Neural network</p></div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    # Per-sentence DeBERTa results
+                    if deberta_result.get('sentencas'):
+                        st.markdown("**DeBERTa per-sentence analysis:**")
+                        for ds in deberta_result['sentencas']:
+                            ds_color = '#D4A843' if ds['label'] == 'ai' else '#22C55E'
+                            ds_label = 'AI' if ds['label'] == 'ai' else 'Human'
+                            ds_preview = ds['sentenca'][:60] + ('...' if len(ds['sentenca']) > 60 else '')
+                            st.markdown(
+                                f'<div style="display:flex;align-items:center;gap:8px;'
+                                f'margin:3px 0;padding:6px 10px;'
+                                f'border-left:3px solid {ds_color};'
+                                f'background:rgba(255,255,255,0.02);border-radius:0 4px 4px 0;">'
+                                f'<span style="font-size:11px;color:{ds_color};font-weight:700;'
+                                f'min-width:35px;">{ds["score_pct"]:.0f}%</span>'
+                                f'<span style="font-size:11px;color:#888;flex:1;">'
+                                f'{_html_escape_app(ds_preview)}</span>'
+                                f'<span style="background:{ds_color};color:white;'
+                                f'padding:1px 6px;border-radius:8px;font-size:9px;'
+                                f'font-weight:600;">{ds_label}</span></div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    st.caption(
+                        "DeBERTa uses a neural network with 86M+ parameters. "
+                        "More accurate than statistics but requires more resources. "
+                        "Model: vraj33/ai-text-detector-deberta"
+                    )
 
         # --- Watermarks Unicode / Caracteres Especiais ---
         wm = st.session_state.get("det_watermarks")
