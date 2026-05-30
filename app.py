@@ -922,19 +922,25 @@ with tab2:
             breakdown_html = f'''
             <div style="margin:10px 0 16px 0;">
                 <div style="display:flex;align-items:center;margin:8px 0;gap:8px;">
-                    <span style="color:#CCC;font-size:14px;flex:1;">AI-generated</span>
+                    <span style="color:#CCC;font-size:14px;flex:1;">AI-generated
+                        <span style="cursor:help;color:#888;" title="Text that was likely written entirely by an AI model. Our detector analyzes sentence structure, word choice, formality level, and statistical patterns to identify AI-generated content.">ℹ️</span>
+                    </span>
                     <span style="color:#FFF;font-size:14px;font-weight:700;">{ai_pct:.0f}%</span>
                     <div style="width:12px;height:12px;border-radius:50%;
                                 background:#D4A843;flex-shrink:0;"></div>
                 </div>
                 <div style="display:flex;align-items:center;margin:8px 0;gap:8px;">
-                    <span style="color:#CCC;font-size:14px;flex:1;">Human-written &amp; AI-refined</span>
+                    <span style="color:#CCC;font-size:14px;flex:1;">Human-written &amp; AI-refined
+                        <span style="cursor:help;color:#888;" title="Text that appears to be human-written but shows signs of AI editing or refinement. May contain some AI-typical patterns mixed with natural human writing.">ℹ️</span>
+                    </span>
                     <span style="color:#FFF;font-size:14px;font-weight:700;">{mixed_pct:.0f}%</span>
                     <div style="width:12px;height:12px;border-radius:50%;
                                 background:#B0B8C4;flex-shrink:0;"></div>
                 </div>
                 <div style="display:flex;align-items:center;margin:8px 0;gap:8px;">
-                    <span style="color:#CCC;font-size:14px;flex:1;">Human-written</span>
+                    <span style="color:#CCC;font-size:14px;flex:1;">Human-written
+                        <span style="cursor:help;color:#888;" title="Text that shows strong indicators of natural human writing: contractions, personal pronouns, varied sentence lengths, colloquial expressions, and informal structure.">ℹ️</span>
+                    </span>
                     <span style="color:#FFF;font-size:14px;font-weight:700;">{human_pct:.0f}%</span>
                     <div style="width:12px;height:12px;border-radius:50%;
                                 background:#D5D5D5;flex-shrink:0;"></div>
@@ -1026,59 +1032,83 @@ with tab2:
                     if s_class == 'ai':
                         s_color = '#D4A843'
                         s_label = 'AI-generated'
-                        s_badge = 'AI'
                         s_border = '#D4A843'
-                        conf_label = 'High Probability' if s_conf == 'high' else 'Moderate'
-                        conf_color = '#D4A843'
+                        conf_label = 'High Probability' if s_conf == 'high' else 'Moderate Probability'
+                        conf_color = '#D4A843' if s_conf == 'high' else '#EAB308'
+                        conf_badge_bg = '#22C55E' if s_conf == 'high' else '#EAB308'
+                        conf_badge_text = 'High' if s_conf == 'high' else 'Moderate'
+                        conf_tooltip = 'High probability means our detector is very confident this sentence was written by AI based on multiple strong signals.'
                     elif s_class == 'mixed':
                         s_color = '#60A5FA'
-                        s_label = 'AI-refined'
-                        s_badge = 'Mixed'
+                        s_label = 'AI-generated'
                         s_border = '#93C5FD'
-                        conf_label = 'Moderate'
-                        conf_color = '#60A5FA'
+                        conf_label = 'Moderate Probability'
+                        conf_color = '#EAB308'
+                        conf_badge_bg = '#EAB308'
+                        conf_badge_text = 'Moderate'
+                        conf_tooltip = 'Moderate probability means some AI patterns were detected but the text also shows human characteristics. Could be AI-refined.'
                     else:
                         s_color = '#22C55E'
                         s_label = 'Human-written'
-                        s_badge = 'Human'
                         s_border = '#22C55E'
-                        conf_label = ''
+                        conf_label = 'Low Probability'
                         conf_color = '#22C55E'
+                        conf_badge_bg = '#F97316'
+                        conf_badge_text = 'Low'
+                        conf_tooltip = 'Low probability means the sentence shows natural human writing patterns: contractions, personal voice, varied structure.'
 
                     preview = s_text[:60] + ('...' if len(s_text) > 60 else '')
 
-                    # Header: score + preview + badge
+                    # --- QuillBot-style sentence card ---
+                    # Label + confidence badge (right side)
                     st.markdown(
-                        f'<div style="display:flex;align-items:flex-start;gap:8px;'
-                        f'margin:6px 0 0 0;padding:8px 10px;'
-                        f'border-left:3px solid {s_border};'
+                        f'<div style="border-left:3px solid {s_border};'
+                        f'padding:10px 12px;margin:8px 0 0 0;'
                         f'background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;">'
-                        f'<span style="font-size:12px;color:{s_color};font-weight:700;'
-                        f'min-width:32px;">{s_score}%</span>'
-                        f'<span style="font-size:12px;color:#999;flex:1;'
-                        f'line-height:1.4;">{_html_escape_app(preview)}</span>'
-                        f'<span style="background:{s_color};color:white;'
-                        f'padding:1px 8px;border-radius:10px;font-size:10px;'
-                        f'font-weight:600;white-space:nowrap;">{s_badge}</span>'
+                        f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+                        f'<span style="color:{s_color};font-size:13px;font-weight:600;">'
+                        f'{s_label}</span>'
+                        f'<span style="background:{conf_badge_bg};color:white;'
+                        f'padding:2px 10px;border-radius:10px;font-size:11px;'
+                        f'font-weight:600;">{conf_badge_text}</span>'
+                        f'</div>'
+                        f'<p style="color:#999;font-size:12px;margin:6px 0 2px 0;'
+                        f'line-height:1.4;">{_html_escape_app(preview)}</p>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
 
                     # Details for AI/mixed sentences
                     if s_class in ('ai', 'mixed'):
-                        # Confidence + trigger tags
-                        trigger_tags = ''.join(
+                        # "Why?" section with trigger explanations
+                        ai_triggers = [t for t in s_triggers if t[0] == 'ai']
+                        human_triggers = [t for t in s_triggers if t[0] == 'human']
+
+                        why_items = ''.join(
                             f'<span style="background:#2A2A3E;border:1px solid #444;'
                             f'color:#CCC;padding:2px 6px;border-radius:10px;'
-                            f'font-size:10px;">{_html_escape_app(t[1][:25])}</span>'
-                            for t in s_triggers[:3]
+                            f'font-size:10px;">{_html_escape_app(t[1][:28])}</span>'
+                            for t in ai_triggers[:4]
                         )
+                        if why_items:
+                            st.markdown(
+                                f'<div style="margin:2px 0 0 14px;">'
+                                f'<span style="color:#999;font-size:11px;">Why? </span>'
+                                f'<div style="display:flex;flex-wrap:wrap;gap:4px;'
+                                f'margin-top:4px;">{why_items}</div></div>',
+                                unsafe_allow_html=True,
+                            )
+
+                        # "How sure?" + probability label + ℹ️ tooltip
                         st.markdown(
-                            f'<div style="margin:2px 0 4px 42px;display:flex;'
-                            f'flex-wrap:wrap;gap:4px;align-items:center;">'
-                            f'<span style="color:{conf_color};font-size:11px;'
-                            f'font-weight:600;">{conf_label}</span>'
-                            f'{trigger_tags}</div>',
+                            f'<div style="margin:6px 0 4px 14px;">'
+                            f'<span style="color:#999;font-size:11px;">'
+                            f'How sure is our detector about the content detected?</span><br>'
+                            f'<span style="color:{conf_color};font-size:13px;font-weight:600;">'
+                            f'{conf_label}</span> '
+                            f'<span style="cursor:help;font-size:13px;" '
+                            f'title="{_html_escape_app(conf_tooltip)}">ℹ️</span>'
+                            f'</div>',
                             unsafe_allow_html=True,
                         )
 
