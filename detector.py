@@ -510,7 +510,35 @@ _SENTENCE_AI_PHRASES = [
     "a wide range of", "a variety of", "in order to",
     "navigating the complexities", "a nuanced understanding",
     "serves as a reminder", "a testament to",
+    # Generic homework/essay AI patterns (QuillBot: "Generic language")
+    "because i was able to", "i was able to connect", "helped me see that",
+    "helped me to see", "it helped me", "it was special to see",
+    "i feel closer to", "through our conversations",
+    "gave us a natural opportunity", "more thankful for",
+    "share meaningful memories", "meaningful memories with",
+    "not only names and dates", "about love, memories, and",
+    "learn more about my family", "learn more about our family",
+    "i did not know before", "who i did not know",
+    "because of this experience", "strengthened my testimony",
+    "closer to my family", "thankful for heavenly",
 ]
+
+# Generic emotional words that AI clusters together (QuillBot: "Lack of personal insight")
+_GENERIC_EMOTION_WORDS = frozenset([
+    "thankful", "grateful", "blessed", "meaningful", "special",
+    "amazing", "wonderful", "incredible", "beautiful", "inspiring",
+    "important", "valuable", "closer", "connected", "appreciate",
+    "appreciate", "appreciated", "heartwarming", "touching",
+])
+
+# "I also" / "I [past verb]" repetitive pattern — strong AI signal
+_I_ALSO_RE = re.compile(r'\bI\s+also\b', re.IGNORECASE)
+_I_VERB_STARTER_RE = re.compile(
+    r'^I\s+(?:chose|used|learned|discovered|felt|was|also|talked|shared|'
+    r'have|had|think|believe|realized|noticed|found|decided|wanted|needed|'
+    r'understand|understood|know|knew|see|saw|tried|started|began|made)\b',
+    re.IGNORECASE,
+)
 
 _COLLOQUIAL_RE = re.compile(
     r'\b(?:like|you know|kinda|sorta|pretty much|a lot of|stuff|things|'
@@ -696,24 +724,102 @@ def _score_formulaicos(f):
     return 18  # ausencia nao prova humano
 
 
+# ---------------------------------------------------------------------------
+# 16-18. Novas metricas (estilo QuillBot)
+# ---------------------------------------------------------------------------
+
+def calcular_i_also_freq(texto):
+    """Frequencia de 'I also' por sentenca. IA abusa dessa construcao."""
+    frases = _frases(texto)
+    if not frases:
+        return 0.0
+    hits = len(_I_ALSO_RE.findall(texto))
+    return hits / len(frases)
+
+
+def calcular_i_verb_ratio(texto):
+    """Ratio de frases que comecam com 'I [verb]'. IA repete esse padrao."""
+    frases = _frases(texto)
+    if len(frases) < 3:
+        return 0.0
+    i_verb_count = sum(1 for f in frases if _I_VERB_STARTER_RE.match(f.strip()))
+    return i_verb_count / len(frases)
+
+
+def calcular_generic_language(texto):
+    """Score 0-1 para linguagem generica sem insight pessoal.
+    Detecta: palavras emocionais genericas, falta de nomes/numeros especificos."""
+    pals = _palavras(texto)
+    if len(pals) < 20:
+        return 0.0
+
+    # Palavras emocionais genericas
+    emotion_hits = sum(1 for p in pals if p in _GENERIC_EMOTION_WORDS)
+    emotion_density = emotion_hits / (len(pals) / 100)
+
+    # Falta de detalhes especificos (nomes proprios, numeros, datas)
+    specifics = len(re.findall(r'\b(?:[A-Z][a-z]{2,}){2,}\b', texto))  # nomes compostos
+    numbers = len(re.findall(r'\b\d{1,4}\b', texto))
+    specific_density = (specifics + numbers) / (len(pals) / 100)
+
+    # Score: alta emocao + baixa especificidade = generico
+    if emotion_density > 3.0 and specific_density < 1.0:
+        return 0.9
+    if emotion_density > 2.0 and specific_density < 1.5:
+        return 0.7
+    if emotion_density > 1.0:
+        return 0.4
+    return 0.1
+
+
+def _score_i_also(freq):
+    """'I also' por sentenca. IA: > 0.15 | Humano: < 0.05"""
+    if freq > 0.3: return 90
+    if freq > 0.2: return 78
+    if freq > 0.1: return 62
+    if freq > 0.05: return 45
+    return 20
+
+def _score_i_verb(ratio):
+    """Ratio de frases 'I [verb]'. IA: > 0.5 | Humano: < 0.3"""
+    if ratio > 0.7: return 92
+    if ratio > 0.5: return 78
+    if ratio > 0.4: return 65
+    if ratio > 0.3: return 50
+    if ratio > 0.15: return 35
+    return 15
+
+def _score_generic(g):
+    """Generic language. IA: > 0.5 | Humano: < 0.2"""
+    if g >= 0.8: return 90
+    if g >= 0.6: return 75
+    if g >= 0.4: return 58
+    if g >= 0.2: return 40
+    return 18
+
+
 def calcular_score(m):
-    """Combina 15 metricas em score 0-100. Maior = mais provavel IA."""
+    """Combina metricas em score 0-100. Maior = mais provavel IA."""
     scores = {
-        'entropia':     (_score_entropia(m['entropia']),          0.06),
-        'compressao':   (_score_compressao(m['compressao']),      0.06),
-        'sent_sd':      (_score_sent_sd(m['sent_sd']),            0.10),
-        'var_adj':      (_score_var_adj(m['var_adj']),             0.06),
-        'burstiness':   (_score_burstiness(m['burstiness']),      0.06),
+        'entropia':     (_score_entropia(m['entropia']),          0.05),
+        'compressao':   (_score_compressao(m['compressao']),      0.05),
+        'sent_sd':      (_score_sent_sd(m['sent_sd']),            0.09),
+        'var_adj':      (_score_var_adj(m['var_adj']),             0.05),
+        'burstiness':   (_score_burstiness(m['burstiness']),      0.05),
         'ttr':          (_score_ttr(m['ttr']),                    0.02),
         'hapax':        (_score_hapax(m['hapax']),                0.02),
-        'ratio_cf':     (_score_ratio_cf(m['ratio_cf']),          0.11),
-        'contracoes':   (_score_contracoes(m['contracoes']),      0.11),
-        'ent_pont':     (_score_ent_pontuacao(m['ent_pont']),     0.04),
-        'conectivos':   (_score_conectivos(m['conectivos']),      0.10),
+        'ratio_cf':     (_score_ratio_cf(m['ratio_cf']),          0.09),
+        'contracoes':   (_score_contracoes(m['contracoes']),      0.09),
+        'ent_pont':     (_score_ent_pontuacao(m['ent_pont']),     0.03),
+        'conectivos':   (_score_conectivos(m['conectivos']),      0.08),
         'div_inicio':   (_score_div_inicio(m['div_inicio']),      0.03),
-        'pronomes':     (_score_pronomes(m['pronomes']),          0.07),
-        'frases_ia':    (_score_frases_ia(m['frases_ia']),        0.09),
-        'formulaicos':  (_score_formulaicos(m['formulaicos']),    0.07),
+        'pronomes':     (_score_pronomes(m['pronomes']),          0.06),
+        'frases_ia':    (_score_frases_ia(m['frases_ia']),        0.08),
+        'formulaicos':  (_score_formulaicos(m['formulaicos']),    0.06),
+        # Novas metricas (estilo QuillBot)
+        'i_also':       (_score_i_also(m.get('i_also', 0)),      0.05),
+        'i_verb':       (_score_i_verb(m.get('i_verb', 0)),      0.05),
+        'generic':      (_score_generic(m.get('generic', 0)),     0.05),
     }
 
     base = sum(s * w for s, w in scores.values())
@@ -727,9 +833,11 @@ def calcular_score(m):
     if m['ratio_cf'] > 1.3: strong_ai += 1
     if m['sent_sd'] < 5.0: strong_ai += 1
     if m['burstiness'] < 0.25: strong_ai += 1
-    # Novos sinais estruturais:
     if m['var_adj'] < 0.35: strong_ai += 1
     if m['entropia'] < 6.5: strong_ai += 1
+    # Novos sinais (QuillBot-style)
+    if m.get('i_verb', 0) > 0.4: strong_ai += 1
+    if m.get('generic', 0) > 0.5: strong_ai += 1
 
     if strong_ai >= 7:
         base = max(base, 90)
@@ -1080,7 +1188,7 @@ def score_codigo(code_metricas, nl_score):
 # ---------------------------------------------------------------------------
 
 def _avaliar_texto(texto):
-    """Avalia texto puro (prosa) com 15 metricas."""
+    """Avalia texto puro (prosa) com 18 metricas."""
     metricas = {
         'entropia':     calcular_entropia(texto),
         'compressao':   calcular_compressao(texto),
@@ -1097,6 +1205,10 @@ def _avaliar_texto(texto):
         'pronomes':     calcular_densidade_pronomes(texto),
         'frases_ia':    contar_frases_ia(texto),
         'formulaicos':  calcular_formulaicos(texto),
+        # Novas metricas (QuillBot-style)
+        'i_also':       calcular_i_also_freq(texto),
+        'i_verb':       calcular_i_verb_ratio(texto),
+        'generic':      calcular_generic_language(texto),
     }
     score = calcular_score(metricas)
     return score, metricas
@@ -2007,6 +2119,31 @@ def _score_sentenca(sentenca):
         avg_wlen = sum(len(p) for p in pals) / len(pals)
         if avg_wlen >= 6.5:
             score += 5
+
+    # 10b. "I also" pattern (AI adora "I also learned", "I also talked")
+    i_also_count = len(_I_ALSO_RE.findall(sentenca))
+    if i_also_count > 0:
+        score += 12
+        triggers.append(('ai', 'I also... pattern'))
+
+    # 10c. "I [past verb]" starter (AI: "I chose", "I learned", "I felt")
+    if _I_VERB_STARTER_RE.match(sentenca.strip()) and not i_also_count:
+        score += 6
+        triggers.append(('ai', 'I [verb] starter'))
+
+    # 10d. Generic emotional word clustering (QuillBot: "Lack of personal insight")
+    emotion_count = sum(1 for p in pals if p in _GENERIC_EMOTION_WORDS)
+    if emotion_count >= 3:
+        score += 15
+        triggers.append(('ai', 'Emotional clustering'))
+    elif emotion_count >= 2:
+        score += 8
+        triggers.append(('ai', 'Generic language'))
+
+    # 10e. Long compound sentence with listing pattern ("verb, verb, and verb")
+    if sentenca.count(',') >= 3 and n_words >= 15:
+        score += 5
+        triggers.append(('ai', 'List-like structure'))
 
     # === SINAIS HUMANOS (diminuem score) ===
 
